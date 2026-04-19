@@ -514,7 +514,10 @@ class TestFindFilesByGlob:
         real_file = self.root / "real.prompt.md"
         real_file.write_text("content")
         link = self.root / "link.prompt.md"
-        link.symlink_to(real_file)
+        try:
+            link.symlink_to(real_file)
+        except OSError:
+            pytest.skip("symlinks are not supported in this test environment")
         results = BaseIntegrator.find_files_by_glob(self.root, "*.prompt.md")
         names = {f.name for f in results}
         assert "link.prompt.md" not in names
