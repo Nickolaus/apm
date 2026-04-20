@@ -229,7 +229,7 @@ apm install --dry-run
 APM automatically detects which integrations to enable based on your project structure:
 
 - **VSCode integration**: Enabled when `.github/` directory exists
-- **Claude integration**: Enabled when `.claude/` directory exists
+- **Claude integration**: Enabled when `.claude/` directory exists (using `--target claude` explicitly creates `.claude/` even if it does not exist yet)
 - **Cursor integration**: Enabled when `.cursor/` directory exists
 - **OpenCode integration**: Enabled when `.opencode/` directory exists
 - All integrations can coexist in the same project
@@ -1187,7 +1187,7 @@ apm compile [OPTIONS]
 
 **Options:**
 - `-o, --output TEXT` - Output file path (for single-file mode)
-- `-t, --target [vscode|agents|claude|codex|opencode|all]` - Target agent format. `agents` is an alias for `vscode`. Auto-detects if not specified.
+- `-t, --target [vscode|agents|claude|codex|opencode|minimal|all]` - Target agent format. `agents` is an alias for `vscode`. `minimal` generates `AGENTS.md` only with no folder integration. Auto-detects if not specified.
 - `--chatmode TEXT` - Chatmode to prepend to the AGENTS.md file
 - `--dry-run` - Preview compilation without writing files (shows placement decisions)
 - `--no-links` - Skip markdown link resolution

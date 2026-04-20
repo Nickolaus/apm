@@ -31,6 +31,7 @@ apm compile                    # Auto-detects target from project structure
 apm compile --target copilot   # Force GitHub Copilot, Cursor, Gemini
 apm compile --target codex     # Force Codex CLI
 apm compile --target claude    # Force Claude Code, Claude Desktop
+apm compile --target minimal   # AGENTS.md only, no folder integration
 ```
 
 You can set a persistent target in `apm.yml`:

@@ -175,7 +175,7 @@ export PROXY_REGISTRY_ONLY=1    # optional -- enforces proxy-only mode
 apm install
 ```
 
-When `PROXY_REGISTRY_URL` is set, APM rewrites download URLs to go through the proxy and sends `PROXY_REGISTRY_TOKEN` as the `Authorization: Bearer` header instead of the GitHub PAT.
+When `PROXY_REGISTRY_URL` is set, APM rewrites download URLs to go through the proxy and sends `PROXY_REGISTRY_TOKEN` as the `Authorization: Bearer` header instead of the GitHub PAT. This includes both GitHub API archive downloads and `codeload.github.com`-style tarball URLs, so JFrog Artifactory proxies configured against `codeload.github.com` work correctly in proxy-only mode.
 
 ### Lockfile and reproducibility
 
@@ -281,6 +281,17 @@ git config credential.helper              # check current helper
 git config --global credential.helper osxkeychain  # macOS
 gh auth login                              # GitHub CLI
 ```
+
+### Azure DevOps authentication errors
+
+If `apm install` fails with an ADO-specific error (e.g., `Authentication failed for dev.azure.com`), ensure `ADO_APM_PAT` is set and has **Code (Read)** permission for the target organisation. ADO does not fall back to unauthenticated access -- all ADO installs require an explicit PAT:
+
+```bash
+export ADO_APM_PAT=your_ado_pat
+apm install dev.azure.com/myorg/myproject/myrepo
+```
+
+See [Azure DevOps](#azure-devops) above for PAT creation steps.
 
 ### SSH connection hangs on corporate/VPN networks
 
