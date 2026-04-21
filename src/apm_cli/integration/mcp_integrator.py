@@ -31,16 +31,21 @@ from apm_cli.utils.console import (
 _log = logging.getLogger(__name__)
 
 
-def _is_vscode_available() -> bool:
+def _is_vscode_available(project_root: Path | str | None = None) -> bool:
     """Return True when VS Code can be targeted for MCP configuration.
 
     VS Code is considered available when either:
     - the ``code`` CLI command is on PATH (the standard case), or
-    - a ``.vscode/`` directory exists in the current working directory
+    - a ``.vscode/`` directory exists in the resolved project root
       (common on macOS where the user hasn't run "Install 'code' command
       in PATH" from the VS Code command palette).
+
+    Args:
+        project_root: Project root to inspect for a `.vscode/` directory when
+            explicit project context is provided. Falls back to CWD when unset.
     """
-    return shutil.which("code") is not None or (Path.cwd() / ".vscode").is_dir()
+    root = Path(project_root) if project_root is not None else Path.cwd()
+    return shutil.which("code") is not None or (root / ".vscode").is_dir()
 
 
 class MCPIntegrator:
@@ -399,6 +404,8 @@ class MCPIntegrator:
     def _check_self_defined_servers_needing_installation(
         dep_names: list,
         target_runtimes: list,
+        project_root=None,
+        user_scope: bool = False,
     ) -> list:
         """Return self-defined MCP servers missing from at least one runtime.
 
@@ -416,7 +423,11 @@ class MCPIntegrator:
         runtime_failures = []
         for runtime in target_runtimes:
             try:
-                client = ClientFactory.create_client(runtime)
+                client = ClientFactory.create_client(
+                    runtime,
+                    project_root=project_root,
+                    user_scope=user_scope,
+                )
                 detector = MCPConflictDetector(client)
                 runtime_existing[runtime] = detector.get_existing_server_configs()
             except Exception:
@@ -443,6 +454,8 @@ class MCPIntegrator:
         stale_names: builtins.set,
         runtime: str = None,
         exclude: str = None,
+        project_root=None,
+        user_scope: bool = False,
         logger=None,
         scope=None,
     ) -> None:
@@ -493,9 +506,11 @@ class MCPIntegrator:
             if "/" in n:
                 expanded_stale.add(n.rsplit("/", 1)[-1])
 
+        project_root_path = Path(project_root) if project_root is not None else Path.cwd()
+
         # Clean .vscode/mcp.json
         if "vscode" in target_runtimes:
-            vscode_mcp = Path.cwd() / ".vscode" / "mcp.json"
+            vscode_mcp = project_root_path / ".vscode" / "mcp.json"
             if vscode_mcp.exists():
                 try:
                     import json as _json
@@ -550,9 +565,17 @@ class MCPIntegrator:
                         exc_info=True,
                     )
 
-        # Clean ~/.codex/config.toml (mcp_servers section)
+        # Clean the scope-resolved Codex config.toml (mcp_servers section)
         if "codex" in target_runtimes:
-            codex_cfg = Path.home() / ".codex" / "config.toml"
+            from apm_cli.factory import ClientFactory
+
+            codex_cfg = Path(
+                ClientFactory.create_client(
+                    "codex",
+                    project_root=project_root,
+                    user_scope=user_scope,
+                ).get_config_path()
+            )
             if codex_cfg.exists():
                 try:
                     import toml as _toml
@@ -576,7 +599,7 @@ class MCPIntegrator:
 
         # Clean .cursor/mcp.json (only if .cursor/ directory exists)
         if "cursor" in target_runtimes:
-            cursor_mcp = Path.cwd() / ".cursor" / "mcp.json"
+            cursor_mcp = project_root_path / ".cursor" / "mcp.json"
             if cursor_mcp.exists():
                 try:
                     import json as _json
@@ -602,8 +625,8 @@ class MCPIntegrator:
 
         # Clean opencode.json (only if .opencode/ directory exists)
         if "opencode" in target_runtimes:
-            opencode_cfg = Path.cwd() / "opencode.json"
-            if opencode_cfg.exists() and (Path.cwd() / ".opencode").is_dir():
+            opencode_cfg = project_root_path / "opencode.json"
+            if opencode_cfg.exists() and (project_root_path / ".opencode").is_dir():
                 try:
                     import json as _json
 
@@ -722,7 +745,9 @@ class MCPIntegrator:
 
         except ImportError:
             mcp_compatible = [
-                rt for rt in detected_runtimes if rt in ["vscode", "copilot", "cursor", "opencode"]
+                rt
+                for rt in detected_runtimes
+                if rt in ["vscode", "copilot", "codex", "cursor", "opencode"]
             ]
             return [rt for rt in mcp_compatible if shutil.which(rt)]
 
@@ -737,6 +762,8 @@ class MCPIntegrator:
         shared_env_vars: dict = None,
         server_info_cache: dict = None,
         shared_runtime_vars: dict = None,
+        project_root=None,
+        user_scope: bool = False,
         logger=None,
     ) -> bool:
         """Install MCP dependencies for a specific runtime.
@@ -745,10 +772,6 @@ class MCPIntegrator:
         """
         try:
             from apm_cli.core.operations import install_package
-            from apm_cli.factory import ClientFactory
-
-            # Get the appropriate client for the runtime
-            client = ClientFactory.create_client(runtime)
 
             all_ok = True
             for dep in mcp_deps:
@@ -763,6 +786,8 @@ class MCPIntegrator:
                         shared_env_vars=shared_env_vars,
                         server_info_cache=server_info_cache,
                         shared_runtime_vars=shared_runtime_vars,
+                        project_root=project_root,
+                        user_scope=user_scope,
                     )
                     if result["failed"]:
                         if logger:
@@ -770,6 +795,16 @@ class MCPIntegrator:
                         else:
                             click.echo(f"  x Failed to install {dep}")
                         all_ok = False
+                    elif logger and runtime == "codex":
+                        from apm_cli.factory import ClientFactory
+
+                        config_path = ClientFactory.create_client(
+                            runtime,
+                            project_root=project_root,
+                            user_scope=user_scope,
+                        ).get_config_path()
+                        _log.debug("Codex config written to %s", config_path)
+                        logger.verbose_detail(f"  Codex config: {config_path}")
                 except Exception as install_error:
                     _log.debug(
                         "Failed to install MCP dep %s for runtime %s",
@@ -822,6 +857,9 @@ class MCPIntegrator:
         verbose: bool = False,
         apm_config: dict = None,
         stored_mcp_configs: dict = None,
+        project_root=None,
+        user_scope: bool = False,
+        explicit_target: str = None,
         logger=None,
         diagnostics=None,
         scope=None,
@@ -839,7 +877,10 @@ class MCPIntegrator:
             stored_mcp_configs: Previously stored MCP configs from lockfile
                 for diff-aware installation.  When provided, servers whose
                 manifest config has changed are re-applied automatically.
-            scope: InstallScope (PROJECT or USER).  When USER, only
+            project_root: Project root for repo-local runtime configs.
+            user_scope: Whether runtime configuration is being resolved at user scope.
+            explicit_target: Explicit target selected by CLI or manifest.
+            scope: InstallScope (PROJECT or USER). When USER, only
                 runtimes whose adapter declares ``supports_user_scope``
                 are targeted; workspace-only runtimes are skipped.
 
@@ -852,6 +893,16 @@ class MCPIntegrator:
             else:
                 _rich_warning("No MCP dependencies found in apm.yml")
             return 0
+
+        from apm_cli.core.scope import InstallScope
+
+        # The explicit scope enum takes precedence over the raw user_scope bool
+        # so callers cannot accidentally mix user-scope runtime filtering with
+        # project-scope config writes (or the inverse).
+        if scope is InstallScope.USER:
+            user_scope = True
+        elif scope is InstallScope.PROJECT:
+            user_scope = False
 
         # Split into registry-resolved and self-defined deps
         # Backward compat: plain strings are treated as registry deps
@@ -912,10 +963,12 @@ class MCPIntegrator:
             else:
                 _rich_info(f"Targeting specific runtime: {runtime}")
         else:
+            project_root_path = Path(project_root) if project_root is not None else Path.cwd()
+
             if apm_config is None:
                 # Lazy load  -- only when the caller doesn't provide it
                 try:
-                    apm_yml = Path("apm.yml")
+                    apm_yml = project_root_path / "apm.yml"
                     if apm_yml.exists():
                         from apm_cli.utils.yaml_io import load_yaml
                         apm_config = load_yaml(apm_yml)
@@ -933,17 +986,17 @@ class MCPIntegrator:
                 for runtime_name in ["copilot", "codex", "vscode", "cursor", "opencode"]:
                     try:
                         if runtime_name == "vscode":
-                            if _is_vscode_available():
+                            if _is_vscode_available(project_root=project_root_path):
                                 ClientFactory.create_client(runtime_name)
                                 installed_runtimes.append(runtime_name)
                         elif runtime_name == "cursor":
                             # Cursor is opt-in: only target when .cursor/ exists
-                            if (Path.cwd() / ".cursor").is_dir():
+                            if (project_root_path / ".cursor").is_dir():
                                 ClientFactory.create_client(runtime_name)
                                 installed_runtimes.append(runtime_name)
                         elif runtime_name == "opencode":
                             # OpenCode is opt-in: only target when .opencode/ exists
-                            if (Path.cwd() / ".opencode").is_dir():
+                            if (project_root_path / ".opencode").is_dir():
                                 ClientFactory.create_client(runtime_name)
                                 installed_runtimes.append(runtime_name)
                         else:
@@ -959,13 +1012,13 @@ class MCPIntegrator:
                     if shutil.which(rt) is not None
                 ]
                 # VS Code: check binary on PATH or .vscode/ directory presence
-                if _is_vscode_available():
+                if _is_vscode_available(project_root=project_root_path):
                     installed_runtimes.append("vscode")
                 # Cursor is directory-presence based, not binary-based
-                if (Path.cwd() / ".cursor").is_dir():
+                if (project_root_path / ".cursor").is_dir():
                     installed_runtimes.append("cursor")
                 # OpenCode is directory-presence based
-                if (Path.cwd() / ".opencode").is_dir():
+                if (project_root_path / ".opencode").is_dir():
                     installed_runtimes.append("opencode")
 
             # Step 2: Get runtimes referenced in apm.yml scripts
@@ -1080,10 +1133,35 @@ class MCPIntegrator:
                 else:
                     _rich_info("No runtimes installed, using VS Code as fallback")
 
+        # Codex MCP is project-scoped: only configure it when Codex is an
+        # active project target, mirroring Cursor/OpenCode opt-in behavior.
+        if not user_scope and "codex" in target_runtimes:
+            from apm_cli.integration.targets import active_targets
+
+            root = project_root or Path.cwd()
+            config_target = (
+                explicit_target
+                or (apm_config.get("target") if apm_config else None)
+            )
+            active = {t.name for t in active_targets(root, config_target)}
+            if "codex" not in active:
+                _log.debug("Codex gated out: active_targets=%s", sorted(active))
+                target_runtimes = [r for r in target_runtimes if r != "codex"]
+                message = (
+                    "Codex not an active project target -- skipping MCP config "
+                    "(create .codex/ or set target: codex in apm.yml)"
+                )
+                if logger:
+                    logger.progress(message)
+                else:
+                    _rich_info(message, symbol="info")
+
+        # Explicit runtime/exclusion/gating can leave nothing to configure.
+        if not target_runtimes:
+            return 0
+
         # Scope filtering: at USER scope, keep only global-capable runtimes.
         # Applied after both explicit --runtime and auto-discovery paths.
-        from apm_cli.core.scope import InstallScope
-
         if scope is InstallScope.USER:
             from apm_cli.factory import ClientFactory as _CF
 
@@ -1168,7 +1246,10 @@ class MCPIntegrator:
                 if valid_servers:
                     servers_to_install = (
                         operations.check_servers_needing_installation(
-                            target_runtimes, valid_servers
+                            target_runtimes,
+                            valid_servers,
+                            project_root=project_root,
+                            user_scope=user_scope,
                         )
                     )
                     already_configured_candidates = [
@@ -1292,6 +1373,8 @@ class MCPIntegrator:
                                     shared_env_vars,
                                     server_info_cache,
                                     shared_runtime_vars,
+                                    project_root=project_root,
+                                    user_scope=user_scope,
                                     logger=logger,
                                 ):
                                     any_ok = True
@@ -1335,6 +1418,8 @@ class MCPIntegrator:
                 MCPIntegrator._check_self_defined_servers_needing_installation(
                     self_defined_names,
                     target_runtimes,
+                    project_root=project_root,
+                    user_scope=user_scope,
                 )
             )
             already_configured_candidates_sd = [
@@ -1414,6 +1499,8 @@ class MCPIntegrator:
                         [dep.name],
                         self_defined_env,
                         self_defined_cache,
+                        project_root=project_root,
+                        user_scope=user_scope,
                         logger=logger,
                     ):
                         any_ok = True

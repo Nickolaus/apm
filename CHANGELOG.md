@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ## [Unreleased]
+### Added
+
+- `feat(codex): project-scoped MCP config and user target support` adds repo-local `.codex/config.toml` support for project installs, keeps Codex MCP gated to active project targets, and enables Codex user-scope primitive deployment. (#803)
 
 ## [0.9.2] - 2026-04-23
 
