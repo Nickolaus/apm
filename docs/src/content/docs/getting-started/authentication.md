@@ -331,3 +331,15 @@ URL scheme honored exactly; shorthand uses HTTPS unless
 selection matrix, the `--ssh` / `--https` flags, the `APM_GIT_PROTOCOL`
 env var, and the `--allow-protocol-fallback` escape hatch, see
 [Dependencies: Transport selection](../../guides/dependencies/#transport-selection-ssh-vs-https).
+
+:::caution[Custom ports and cross-protocol fallback]
+When `--allow-protocol-fallback` is in effect, APM reuses the
+dependency URL's port on both SSH and HTTPS attempts. On servers that
+use different ports per protocol (e.g. Bitbucket Datacenter: SSH 7999,
+HTTPS 7990), the off-protocol URL will be wrong. APM emits a `[!]`
+warning before the first clone attempt to flag this. To avoid
+cross-protocol retries, leave `--allow-protocol-fallback` disabled
+(strict mode) and pin the dependency with an explicit `ssh://...` or
+`https://...` URL. If the flag is enabled, APM may still try the
+other protocol even when the URL uses an explicit scheme.
+:::

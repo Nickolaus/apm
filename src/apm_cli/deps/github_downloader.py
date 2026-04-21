@@ -54,6 +54,15 @@ from .transport_selection import (
     protocol_pref_from_env,
 )
 
+# Public docs anchor for the cross-protocol fallback caveat surfaced by the
+# #786 warning. Lives under the dependencies guide, next to the canonical
+# `--allow-protocol-fallback` section (Starlight site defined in
+# docs/astro.config.mjs).
+_PROTOCOL_FALLBACK_DOCS_URL = (
+    "https://microsoft.github.io/apm/guides/dependencies/"
+    "#restoring-the-legacy-permissive-chain"
+)
+
 
 def normalize_collection_path(virtual_path: str) -> str:
     """Normalize a collection virtual path by stripping any existing extension.
@@ -199,6 +208,11 @@ class GitHubPackageDownloader:
         self._allow_fallback = (
             allow_fallback if allow_fallback is not None else is_fallback_allowed()
         )
+        # Dedup set for the issue #786 cross-protocol port warning: one install
+        # run calls _clone_with_fallback multiple times per dep (ref-resolution
+        # clone, then the actual dep clone). We want the warning exactly once
+        # per (host, repo, port) identity across all those calls.
+        self._fallback_port_warned: set = set()
 
     def _setup_git_environment(self) -> Dict[str, Any]:
         """Set up Git environment with authentication using centralized token manager.
@@ -738,6 +752,45 @@ class GitHubPackageDownloader:
             "transport plan: "
             f"strict={plan.strict}, attempts={[(a.scheme, a.use_token, a.label) for a in plan.attempts]}"
         )
+
+        # Cross-protocol fallback reuses the dependency's port for every
+        # attempt. On servers that serve SSH and HTTPS on different ports
+        # (e.g. Bitbucket Datacenter: SSH 7999, HTTPS 7990), the off-protocol
+        # URL will be wrong. Warn once per dep, before the first attempt, so
+        # the user can pin the URL scheme (and leave fallback disabled) or
+        # fail fast by dropping --allow-protocol-fallback. See #786.
+        # A single install may call this method multiple times for the same
+        # dep (ref resolution + actual clone), so dedup on (host, repo, port).
+        dep_port = getattr(dep_ref, "port", None) if dep_ref else None
+        if (
+            not plan.strict
+            and dep_port is not None
+            and any(a.scheme == "ssh" for a in plan.attempts)
+            and any(a.scheme == "https" for a in plan.attempts)
+        ):
+            # NOTE: dedup key is case-sensitive. GitHub/Bitbucket hostnames
+            # are case-insensitive per RFC, so "Example.com" and
+            # "example.com" dedup as distinct identities -- worst case is a
+            # duplicate warning. Follow-up issue tracks normalization.
+            warn_key = (dep_host, repo_url_base, dep_port)
+            if warn_key not in self._fallback_port_warned:
+                self._fallback_port_warned.add(warn_key)
+                initial_scheme = plan.attempts[0].scheme.upper()
+                fallback_scheme = next(
+                    a.scheme.upper()
+                    for a in plan.attempts
+                    if a.scheme != plan.attempts[0].scheme
+                )
+                host_display = dep_host or "host"
+                _rich_warning(
+                    f"Custom port {dep_port} on {host_display}/{repo_url_base}: "
+                    f"if {initial_scheme} fails, APM will retry over "
+                    f"{fallback_scheme} on the same port.\n"
+                    f"    Pin the URL scheme, or drop "
+                    f"--allow-protocol-fallback to fail fast.\n"
+                    f"    See: {_PROTOCOL_FALLBACK_DOCS_URL}",
+                    symbol="warning",
+                )
 
         prev_label: Optional[str] = None
         prev_scheme: Optional[str] = None
