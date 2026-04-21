@@ -464,11 +464,15 @@ apm install --trust-transitive-mcp
 
 APM configures MCP servers in the native config format for each supported client:
 
-| Client | Config Location | Format |
-|--------|----------------|--------|
-| VS Code | `.vscode/mcp.json` | JSON `servers` object |
-| GitHub Copilot CLI | `~/.copilot/mcp-config.json` | JSON `mcpServers` object |
-| Codex CLI | `~/.codex/config.toml` | TOML `mcp_servers` section |
+| Client | Config Location | Format | Global (`-g`) |
+|--------|----------------|--------|---------------|
+| VS Code | `.vscode/mcp.json` | JSON `servers` object | No (workspace only) |
+| Cursor | `.cursor/mcp.json` | JSON `mcpServers` object | No (workspace only) |
+| OpenCode | `opencode.json` | JSON `mcp` key | No (workspace only) |
+| GitHub Copilot CLI | `~/.copilot/mcp-config.json` | JSON `mcpServers` object | Yes |
+| Codex CLI | `~/.codex/config.toml` | TOML `mcp_servers` section | Yes |
+
+When using `apm install --global` (`-g`), MCP servers are installed only to runtimes with a user-level config path (Copilot CLI, Codex CLI). Workspace-only runtimes (VS Code, Cursor, OpenCode) are skipped because their config files are project-scoped.
 
 **Runtime targeting**: APM detects which runtimes are installed and configures MCP servers for all of them. Use `--runtime <name>` or `--exclude <name>` to control which clients receive configuration.
 
@@ -505,14 +509,14 @@ The MCP registry API may return empty `registry_name` fields for packages. APM i
 
 When installing registry MCP servers, APM selects the best available package for each runtime:
 
-| Package Registry | VS Code | Copilot CLI | Codex CLI |
-|-----------------|---------|-------------|-----------|
-| npm | Yes (npx) | Yes (npx) | Yes (npx) |
-| pypi | Yes (uvx/python3) | Yes (uvx) | Yes (uvx) |
-| docker | Yes | Yes | Yes |
-| homebrew | -- | Yes | Yes |
-| Other (with runtime_hint) | Yes (generic) | Yes (generic) | Yes (generic) |
-| HTTP/SSE remotes | Yes | Yes | Yes |
+| Package Registry | VS Code | Cursor | OpenCode | Copilot CLI | Codex CLI |
+|-----------------|---------|--------|----------|-------------|-----------|
+| npm | Yes (npx) | Yes (npx) | Yes (npx) | Yes (npx) | Yes (npx) |
+| pypi | Yes (uvx/python3) | Yes (uvx) | Yes (uvx) | Yes (uvx) | Yes (uvx) |
+| docker | Yes | Yes | Yes | Yes | Yes |
+| homebrew | -- | -- | -- | Yes | Yes |
+| Other (with runtime_hint) | Yes (generic) | Yes (generic) | Yes (generic) | Yes (generic) | Yes (generic) |
+| HTTP/SSE remotes | Yes | Yes | Yes | Yes | Yes |
 
 ### MCP Server Declaration
 
